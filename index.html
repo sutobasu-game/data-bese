@@ -1,9 +1,16 @@
 <!DOCTYPE html>
 <html lang="ja">
 <head>
-<title>篠山県役所 - ファイル一覧</title>
+
+<title>篠山県役所 - ファイル一覧（管理機能付き）</title>
 <meta name="viewport" content="width=device-width, initial-scale=1" />
+
+<script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-database-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-storage-compat.js"></script>
+
 <script src="firebase-config.js"></script>
+
 <style>
   body {
     font-family: "游ゴシック", "Yu Gothic", sans-serif;
@@ -69,14 +76,30 @@
     padding: 5px 10px;
     font-size: 0.9em;
   }
+  #adminArea {
+    margin-bottom: 15px;
+  }
+  #adminStatus {
+    margin-left: 10px;
+    color: red;
+    font-weight: bold;
+  }
 </style>
 </head>
 <body>
-<header>篠山県役所 - ファイル一覧</header>
+<header>篠山県役所 - ファイル一覧（管理機能付き）</header>
 <main>
+
+  <div id="adminArea">
+    <input type="password" id="adminPass" placeholder="管理者パスワード" />
+    <button id="adminLoginBtn" class="btn">ログイン</button>
+    <span id="adminStatus"></span>
+  </div>
+
   <div class="top-buttons">
     <a href="upload.html" class="btn">＋ ファイルを投稿</a>
   </div>
+
   <table>
     <thead>
       <tr>
@@ -91,58 +114,105 @@
 </main>
 
 <script>
+let isAdmin = false;
+
+const adminPassInput = document.getElementById("adminPass");
+const adminStatus = document.getElementById("adminStatus");
+const adminLoginBtn = document.getElementById("adminLoginBtn");
 const fileListEl = document.getElementById("fileList");
 
-db.ref("files").on("value", snapshot => {
-  fileListEl.innerHTML = "";
-  snapshot.forEach(child => {
-    const data = child.val();
-    const tr = document.createElement("tr");
-
-    const tdName = document.createElement("td");
-    tdName.textContent = data.discordName;
-
-    const tdFile = document.createElement("td");
-    tdFile.textContent = data.fileName;
-
-    const tdDate = document.createElement("td");
-    tdDate.textContent = new Date(data.uploadDate).toLocaleString();
-
-    const tdAction = document.createElement("td");
-    if (data.mode === "all") {
-      const link = document.createElement("a");
-      link.href = data.fileURL;
-      link.textContent = "ダウンロード";
-      link.target = "_blank";
-      link.className = "btn";
-      tdAction.appendChild(link);
-    } else {
-      const input = document.createElement("input");
-      input.type = "password";
-      input.placeholder = "4桁パス";
-      input.autocomplete = "off";
-      const btn = document.createElement("button");
-      btn.textContent = "認証";
-      btn.className = "btn action-btn";
-      btn.onclick = () => {
-        if (input.value === data.password) {
-          window.open(data.fileURL, "_blank");
-        } else {
-          alert("パスワードが違います");
-        }
-      };
-      tdAction.appendChild(input);
-      tdAction.appendChild(btn);
-    }
-
-    tr.appendChild(tdName);
-    tr.appendChild(tdFile);
-    tr.appendChild(tdDate);
-    tr.appendChild(tdAction);
-
-    fileListEl.appendChild(tr);
-  });
+adminLoginBtn.addEventListener("click", () => {
+  const pass = adminPassInput.value;
+  if (pass === "0655") {
+    isAdmin = true;
+    adminStatus.textContent = "管理者ログイン成功！";
+    renderFileList();
+  } else {
+    isAdmin = false;
+    adminStatus.textContent = "パスワードが違います";
+    renderFileList();
+  }
 });
+
+function renderFileList() {
+  db.ref("files").once("value").then(snapshot => {
+    fileListEl.innerHTML = "";
+    snapshot.forEach(child => {
+      const data = child.val();
+      const key = child.key;
+
+      const tr = document.createElement("tr");
+
+      const tdName = document.createElement("td");
+      tdName.textContent = data.discordName;
+      tr.appendChild(tdName);
+
+      const tdFile = document.createElement("td");
+      tdFile.textContent = data.fileName;
+      tr.appendChild(tdFile);
+
+      const tdDate = document.createElement("td");
+      tdDate.textContent = new Date(data.uploadDate).toLocaleString();
+      tr.appendChild(tdDate);
+
+      const tdAction = document.createElement("td");
+
+      if (data.mode === "all") {
+        const link = document.createElement("a");
+        link.href = data.fileURL;
+        link.textContent = "ダウンロード";
+        link.target = "_blank";
+        link.className = "btn";
+        tdAction.appendChild(link);
+      } else {
+        const input = document.createElement("input");
+        input.type = "password";
+        input.placeholder = "4桁パス";
+        input.autocomplete = "off";
+        const btn = document.createElement("button");
+        btn.textContent = "認証";
+        btn.className = "btn action-btn";
+        btn.onclick = () => {
+          if (input.value === data.password) {
+            window.open(data.fileURL, "_blank");
+          } else {
+            alert("パスワードが違います");
+          }
+        };
+        tdAction.appendChild(input);
+        tdAction.appendChild(btn);
+      }
+
+      if (isAdmin) {
+        const delBtn = document.createElement("button");
+        delBtn.textContent = "削除";
+        delBtn.style.marginLeft = "10px";
+        delBtn.className = "btn action-btn";
+        delBtn.onclick = () => {
+          if (confirm("本当にこのファイルを削除しますか？")) {
+            const fileRef = storage.refFromURL(data.fileURL);
+            fileRef.delete().then(() => {
+              return db.ref(`files/${key}`).remove();
+            }).then(() => {
+              alert("削除しました");
+              renderFileList();
+            }).catch(err => {
+              console.error(err);
+              alert("削除に失敗しました");
+            });
+          }
+        };
+        tdAction.appendChild(delBtn);
+      }
+
+      tr.appendChild(tdAction);
+      fileListEl.appendChild(tr);
+    });
+  });
+}
+
+// 最初の表示
+renderFileList();
 </script>
 </body>
 </html>
